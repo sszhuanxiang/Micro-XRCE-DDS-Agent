@@ -21,6 +21,60 @@
 #include "../../xmlobjects/xmlobjects.h"
 
 #include <uxr/agent/middleware/utils/Callbacks.hpp>
+#include"student.h"
+
+#include <ucdr/microcdr.h>
+#include <string.h>
+
+bool student_serialize_topic(ucdrBuffer* writer, const student* topic)
+{
+    bool success = true;
+
+        success &= ucdr_serialize_string(writer, topic->name);
+
+        success &= ucdr_serialize_int32_t(writer, topic->number);
+
+        success &= ucdr_serialize_int32_t(writer, topic->grade);
+
+        for(size_t i = 0; i < sizeof(topic->hobby) / 255; ++i)
+        {
+            success &= ucdr_serialize_string(writer, topic->hobby[i]);
+        }
+    return success && !writer->error;
+}
+
+bool student_deserialize_topic(ucdrBuffer* reader, student* topic)
+{
+    bool success = true;
+
+        success &= ucdr_deserialize_string(reader, topic->name, 255);
+
+        success &= ucdr_deserialize_int32_t(reader, &topic->number);
+
+        success &= ucdr_deserialize_int32_t(reader, &topic->grade);
+
+        for(size_t i = 0; i < sizeof(topic->hobby) / 255; ++i)
+        {
+            success &= ucdr_deserialize_string(reader, topic->hobby[i], 255);
+        }
+    return success && !reader->error;
+}
+
+uint32_t student_size_of_topic(const student* topic, uint32_t size)
+{
+    uint32_t previousSize = size;
+        size += ucdr_alignment(size, 4) + 4 + (uint32_t)strlen(topic->name) + 1;
+
+        size += ucdr_alignment(size, 4) + 4;
+
+        size += ucdr_alignment(size, 4) + 4;
+
+        for(size_t i = 0; i < sizeof(topic->hobby) / 255; ++i)
+        {
+            size += ucdr_alignment(size, 4) + 4 + (uint32_t)strlen(topic->hobby[i]) + 1;
+        }
+    return size - previousSize;
+}
 
 namespace eprosima {
 namespace uxr {
@@ -895,9 +949,15 @@ bool FastDDSMiddleware::write_data(
         uint16_t datawriter_id,
         const std::vector<uint8_t>& data)
 {
-   bool rv = false;
-   auto it = datawriters_.find(datawriter_id);
-   if (datawriters_.end() != it)
+    bool rv = false;
+    auto it = datawriters_.find(datawriter_id);
+    ucdrBuffer buf;
+    student topic;
+    student_deserialize_topic(&buf,&topic);
+    printf("name: %s, number: %d, grade: %d hobby: %s %s %s"
+        ,topic.name, topic.number, topic.grade
+        ,topic.hobby[1],topic.hobby[1],topic.hobby[2]);
+    if (datawriters_.end() != it)
    {
        rv = it->second->write(data);
    }

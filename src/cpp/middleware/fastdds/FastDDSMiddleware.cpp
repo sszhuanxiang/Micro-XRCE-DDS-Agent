@@ -21,61 +21,11 @@
 #include "../../xmlobjects/xmlobjects.h"
 
 #include <uxr/agent/middleware/utils/Callbacks.hpp>
-#include"student.h"
 
 #include <ucdr/microcdr.h>
 #include <string.h>
-
-bool student_serialize_topic(ucdrBuffer* writer, const student* topic)
-{
-    bool success = true;
-
-        success &= ucdr_serialize_string(writer, topic->name);
-
-        success &= ucdr_serialize_int32_t(writer, topic->number);
-
-        success &= ucdr_serialize_int32_t(writer, topic->grade);
-
-        for(size_t i = 0; i < sizeof(topic->hobby) / 255; ++i)
-        {
-            success &= ucdr_serialize_string(writer, topic->hobby[i]);
-        }
-    return success && !writer->error;
-}
-
-bool student_deserialize_topic(ucdrBuffer* reader, student* topic)
-{
-    bool success = true;
-
-        success &= ucdr_deserialize_string(reader, topic->name, 255);
-
-        success &= ucdr_deserialize_int32_t(reader, &topic->number);
-
-        success &= ucdr_deserialize_int32_t(reader, &topic->grade);
-
-        for(size_t i = 0; i < sizeof(topic->hobby) / 255; ++i)
-        {
-            success &= ucdr_deserialize_string(reader, topic->hobby[i], 255);
-        }
-    return success && !reader->error;
-}
-
-uint32_t student_size_of_topic(const student* topic, uint32_t size)
-{
-    uint32_t previousSize = size;
-        size += ucdr_alignment(size, 4) + 4 + (uint32_t)strlen(topic->name) + 1;
-
-        size += ucdr_alignment(size, 4) + 4;
-
-        size += ucdr_alignment(size, 4) + 4;
-
-        for(size_t i = 0; i < sizeof(topic->hobby) / 255; ++i)
-        {
-            size += ucdr_alignment(size, 4) + 4 + (uint32_t)strlen(topic->hobby[i]) + 1;
-        }
-    return size - previousSize;
-}
-
+//#include<uxr/agent/Infovector.hpp>
+#include<uxr/agent/xrcedds_demo.hpp>
 namespace eprosima {
 namespace uxr {
 
@@ -945,18 +895,75 @@ bool FastDDSMiddleware::delete_replier(
 /**********************************************************************************************************************
  * Write/Read functions.
  **********************************************************************************************************************/
+
+
+struct Student{
+    std::string name;
+    int32_t number;
+    int32_t grade;
+    std::string hobby[3];
+    void deserialize(ucdrBuffer &udr){
+        char temp[225];
+        if(ucdr_deserialize_string(&udr,temp,255)){
+            name = std::string(temp);
+        }
+        ucdr_deserialize_int32_t(&udr, &number);
+        ucdr_deserialize_int32_t(&udr, &grade);
+        for(int i = 0;i<3;++i){
+            if(ucdr_deserialize_string(&udr,temp,255)){
+                hobby[i]=std::string(temp);
+            }
+            else{
+                throw std::runtime_error("Failed to deserialize hobby["+std::to_string(i)+"]");
+            }
+        }
+    }
+};
+
 bool FastDDSMiddleware::write_data(
         uint16_t datawriter_id,
         const std::vector<uint8_t>& data)
 {
+        // 填充学生信息
+    // for(uint8_t byte:data){
+    //     std::cout <<static_cast<int>(byte)<<" ";
+    // }
+    //std::cout<<std::endl;
+    uint8_t *bufferPtr = const_cast<uint8_t *>(data.data());
+
+    ucdrBuffer udr;
+    ucdr_init_buffer(&udr,bufferPtr,data.size());
+
+    Student new_student;
+    new_student.deserialize(udr);
+    // //std::cout << "Student Information Written:" << std::endl;
+    // std::cout << "Name: " << new_student.name << " ";
+    // std::cout << "Number: " << new_student.number << " ";
+    // std::cout << "Grade: " << new_student.grade << " ";
+    // std::cout << "Hobbies: ";
+    // for (int i = 0; i < 3; ++i)
+    // {
+    //     std::cout << new_student.hobby[i] << " ";
+    // }
+    student converted_Student;
+
+    converted_Student.name = new_student.name;
+    converted_Student.number = static_cast<long>(new_student.number);
+    converted_Student.grade = static_cast<long>(new_student.grade);
+    for (int i = 0; i < 3; ++i) {
+        converted_Student.hobby[i] = new_student.hobby[i];
+    }
+    // Agent2CentorQueue& agent2CentorQueue = Agent2CentorQueue::instance();
+    // agent2CentorQueue.center_read_queue.Push(converted_Student);
+    //     std::cout << std::endl;
+
+
+    // 将节点插入到 Agent2CentorQueue 的队列中
+    Agent2CentorQueue::instance().center_read_queue.Push(converted_Student);
+
     bool rv = false;
     auto it = datawriters_.find(datawriter_id);
-    ucdrBuffer buf;
-    student topic;
-    student_deserialize_topic(&buf,&topic);
-    printf("name: %s, number: %d, grade: %d hobby: %s %s %s"
-        ,topic.name, topic.number, topic.grade
-        ,topic.hobby[1],topic.hobby[1],topic.hobby[2]);
+
     if (datawriters_.end() != it)
    {
        rv = it->second->write(data);

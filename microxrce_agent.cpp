@@ -13,8 +13,8 @@
 // limitations under the License.
 
 #include <uxr/agent/AgentInstance.hpp>
+#include <uxr/agent/xrcedds_demo.hpp>
 //#include"student.h"
-#include"student23.h"
 #include <iostream>
 #include <cstdio>
 #include <cstdlib>
@@ -31,12 +31,24 @@
 #include <vector>
 #include <thread>
 #include <algorithm>
-#include "fileInfo.h"
-#include<mutex>
+//#include "fileInfo.h"
+#include <mutex>
+#include <condition_variable>
+#include <uxr/agent/fileinfo.hpp>
+#include <uxr/agent/fileInfo.h>
+//#include"fileInfo.c"
 #define MAX_CLIENTS 2
+
+
+vector<student> students1;
+vector<student> students2; 
+vector<student>* current_students = &students1;
 
 using namespace std;
 mutex studentsMutex;
+mutex mtx;
+std::condition_variable cv;
+bool ready = false;
 student deserializeStudent(const char* buffer) {//反序列化
     student student;
     char name[50], hobby1[30], hobby2[30], hobby3[30];
@@ -56,56 +68,49 @@ bool compareByNumber(const student& a, const student& b) {
 void sortStudent(std::vector<student>* current_students) {
     sort(current_students->begin(), current_students->end(), compareByNumber);
 }
-void writeToFileAndSwitch(vector<student>* current_students) {
+void writeToFileAndSwitch(std::vector<student>* current_students) {
     sort(current_students->begin(), current_students->end(), compareByNumber);
+    cout << "do sort!" << endl;
     ofstream outfile;
+
     auto now = chrono::system_clock::now();
     auto now_c = chrono::system_clock::to_time_t(now);
     tm* now_tm = localtime(&now_c);
 
-    char filename[30];
-    strftime(filename, 30, "%Y%m%d%H%M%S.txt", now_tm);
+    char filenm[30];
+    strftime(filenm, 30, "%Y%m%d%H%M%S.txt", now_tm);
+    string fn(filenm);
 
-    outfile.open(filename, ios::out);
+    string filepath = "/home/ubuntu2204/孙帅240108/Micro-XRCE-DDS-Agent/build/" ; // 绝对路径
+    outfile.open(filenm, ios::out);
+
     if (!outfile.is_open()) {
         cout << "Error opening file" << endl;
-        return;
-    }
-
-    for (const auto& student : *current_students) {
-        outfile << "Name: " << student.name << " Number: " << student.number << " Grade: " << student.grade << " Hobbies: ";
-        for (int j = 0; j < 3; j++) {
-            outfile << student.hobby[j] << " ";
+    } else {
+        for (const auto& student : *current_students) {
+            outfile << "Name: " << student.name << " Number: " << student.number << " Grade: " << student.grade << " Hobbies: ";
+            for (int j = 0; j < 3; j++) {
+                outfile << student.hobby[j] << " ";
+            }
+            outfile << endl;
         }
-        outfile << endl;
+        outfile.close();
+        current_students->clear();
+        string filename = filepath + fn ;
+        // 打印文件名（绝对路径/文件名）和生成日期
+        //cout << "File generated: " << filename << " Created on: " << asctime(now_tm)<<endl;
+        fileinfo file;
+        file.filename = filename;
+        file.timestamp = static_cast<unsigned long long>(chrono::system_clock::to_time_t(now));
+        
+
     }
-
-    outfile.close();
-
-    fileInfo file;
-    file.filename = filename;
-    file.timestamp = chrono::duration_cast<chrono::milliseconds>(now.time_since_epoch()).count();
-
-    ofstream fileinfoFile;
-    fileinfoFile.open("fileInfo.txt", ios::app);
-    if (!fileinfoFile.is_open()) {
-        cout << "Error opening fileInfo.txt" << endl;
-        return;
-    }
-
-    fileinfoFile << "Filename: " << file.filename << " Timestamp: " << file.timestamp << endl;
-    fileinfoFile.close();
-
-    current_students->clear();
 }
 
 
 void handleClientConnection(int client_socket) {
     static int file_count = 1; // 文件计数器，用于生成文件名
     static int i =1;
-    static vector<student> students1;
-    static vector<student> students2; 
-    static vector<student>* current_students = &students1;
     while(true){
         char buf[255];
         int bytesReceived = recv(client_socket, buf, 255, 0);
@@ -131,33 +136,27 @@ void handleClientConnection(int client_socket) {
             return;
         }
         //cout << "Received student information:" << endl;
-        cout <<"filecount:"<<file_count<<" ";
-        cout << "Name: " << newstudent.name << " ";
-        cout << "Number: " << newstudent.number << " ";
+        //cout <<"filecount:"<<file_count<<" ";
+        //cout << "Name: " << newstudent.name << " ";
+        //cout << "Number: " << newstudent.number << " ";
         cout << "Grade: " << newstudent.grade << " ";
-        cout << "Hobbies: ";
-        for (int j = 0; j < 3; j++) {
-            cout << newstudent.hobby[j] << " ";
-        }
-        cout << endl;
-
+        // cout << "Hobbies: ";
+        // for (int j = 0; j < 3; j++) {
+        //     cout << newstudent.hobby[j] << " ";
+        // }
+        // cout << endl;
         if (read_size == 0) {
             cout << "Client disconnected" << endl;
             close(client_socket);
         }
         current_students->push_back(newstudent);
-        studentsMutex.unlock();
-        if (current_students->size() >= 1000) {
-            if (current_students == &students1) {
-                thread write_thread(writeToFileAndSwitch, &students1);
-                write_thread.detach();
-                current_students = &students2;
-            } else {
-                thread write_thread(writeToFileAndSwitch, &students2);
-                write_thread.detach();
-                current_students = &students1;
-            }
+        cout<<"vectorSize:"<<current_students->size()<<endl;
+        if (current_students->size() >= 100 && !ready) {
+            ready = true;
+            cv.notify_one();
         }
+        studentsMutex.unlock();
+        
     }
     close(client_socket);
 }
@@ -209,10 +208,49 @@ int startrec23() {
 
     return 0;
 }
+void readFromQueue(){
+    while(true){
+        Agent2CentorQueue &q1 = Agent2CentorQueue::instance();
+        if(!(q1.center_read_queue.IsEmpty())){
+            student data1student = *(q1.center_read_queue.Pop());
+            studentsMutex.lock();
+            cout<<"grade:"<<data1student.grade<<" ";
+            current_students->push_back(data1student);
+            cout<<"vectorSize:"<<current_students->size()<<endl;
+            if (current_students->size() >= 100 && !ready) {
+                ready = true;
+                cv.notify_one();
+            }
+            studentsMutex.unlock();
+            
+        }
+    }
+}
+void swapVector(){
+    while(true){
+        std::unique_lock<std::mutex> lock(mtx);
 
+        cv.wait(lock, []{ return current_students->size() >= 100; });
+
+        if (current_students->size() >= 100) {
+            if (current_students == &students1) {
+                std::thread write_thread(writeToFileAndSwitch, &students1);
+                write_thread.detach();
+                current_students = &students2;
+            } else {
+                std::thread write_thread(writeToFileAndSwitch, &students2);
+                write_thread.detach();
+                current_students = &students1;
+            }
+            ready = false;
+        }
+    }
+}
 int main(int argc, char** argv)
 {
     thread thread23(startrec23);
+    thread thread_read(readFromQueue); 
+    thread thread_swap(swapVector);
     eprosima::uxr::AgentInstance& agent_instance = agent_instance.getInstance();
 
     if (!agent_instance.create(argc, argv))
@@ -220,6 +258,9 @@ int main(int argc, char** argv)
         return 1;
     }
     agent_instance.run();
+    thread_swap.join();
+    thread_read.join();
+    //eprosima::uxr::FramingIO::write_framed_msg()
     thread23.join();
     // std::vector<uint8_t> data;
     // eprosima::uxr::FastDDSMiddleware writer;

@@ -36,11 +36,7 @@
 #include <condition_variable>
 #include <uxr/agent/fileinfo.hpp>
 #include <uxr/agent/fileInfo.h>
-<<<<<<< HEAD
 //#include"fileInfo.c"
-=======
-#include"fileInfo.c"
->>>>>>> 0b272aa6d5e0c28fadfb83f64e481133aee0e240
 #define MAX_CLIENTS 2
 
 
@@ -106,11 +102,8 @@ void writeToFileAndSwitch(std::vector<student>* current_students) {
         fileinfo file;
         file.filename = filename;
         file.timestamp = static_cast<unsigned long long>(chrono::system_clock::to_time_t(now));
-<<<<<<< HEAD
         
-=======
 
->>>>>>> 0b272aa6d5e0c28fadfb83f64e481133aee0e240
 
     }
 }
